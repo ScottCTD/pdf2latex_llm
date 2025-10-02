@@ -1,11 +1,11 @@
 import torch
 from transformers import TrainingArguments, Trainer, AutoProcessor, AutoModelForImageTextToText
 from datasets import load_dataset
+from peft import LoraConfig, get_peft_model, TaskType
 
-raw_datasets = load_dataset("datasets/latex80m_en_10k")
-
-raw_datasets["train"] = load_dataset("datasets/latex80m_en_10k", split="train[:0.9%]")
-raw_datasets["validation"] = load_dataset("datasets/latex80m_en_10k", split="train[0.9%:]")
+raw_dataset_file = "datasets/latex80m_en_10k.parquet"
+train_dataset = load_dataset("parquet", data_files=raw_dataset_file, split="train[:90%]")
+validation_dataset = load_dataset("parquet", data_files=raw_dataset_file, split="train[90%:]")
 
 # this processor is responsible for processing both images and texts for the model
 processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-2B-Instruct", use_fast=True)
@@ -14,8 +14,35 @@ model = AutoModelForImageTextToText.from_pretrained(
     "Qwen/Qwen2-VL-2B-Instruct",
     dtype="bfloat16",
     attn_implementation="flash_attention_2",
-    device_map="cuda",
+    device_map="auto",
 )
+
+target_modules = [
+    # text attention
+    "q_proj", "k_proj", "v_proj", "o_proj",
+    # text MLP
+    "gate_proj", "up_proj", "down_proj",
+    # vision attention
+    "qkv", "proj",
+    # vision MLP
+    "fc1", "fc2",
+    # merger: target only the Linear leaves (avoid the container)
+    "visual.merger.mlp.0",
+    "visual.merger.mlp.2",
+]
+
+
+peft_config = LoraConfig(
+    target_modules=target_modules,
+    task_type=TaskType.CAUSAL_LM,
+    r=8,
+    lora_alpha=16,
+    lora_dropout=0.1,
+)
+
+model = get_peft_model(model, peft_config)
+
+model.print_trainable_parameters()
 
 def build_messages(image, latex_formula):
     user = {
@@ -31,39 +58,44 @@ def build_messages(image, latex_formula):
     }
     return [user], [user, assistant]
 
-def pre_process(example):
-    image = example["image"]
-    answer = example["latex_formula"]
+def vlm_collator(examples):
+    user_only_msgs, full_msgs = [], []
+    for ex in examples:
+        u, f = build_messages(ex["image"], ex["latex_formula"])
+        user_only_msgs.append(u)
+        full_msgs.append(f)
     
-    user_only_msgs, full_msgs = build_messages(image, answer)
-    
-    prompt_text = processor.apply_chat_template(
-        user_only_msgs,
-        tokenize=False,
-        add_generation_prompt=False,
-    )
-    full_text = processor.apply_chat_template(
+    full_inputs = processor.apply_chat_template(
         full_msgs,
-        tokenize=False,
+        tokenize=True,
+        padding=True,
+        return_dict=True,
         add_generation_prompt=False,
-    )
-    
-    # calculate the number of tokens belong to the prompt
-    prompt_ids = processor.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
-    prompt_len = len(prompt_ids)
-    
-    enc = processor(
-        text=full_text,
-        images=image,
         return_tensors="pt",
-        padding=False,
-        truncation=True,
+    )
+    prompt_only = processor.apply_chat_template(
+        user_only_msgs,
+        tokenize=True,
+        padding=True,
+        return_dict=True,
+        add_generation_prompt=True,
+        return_tensors="pt",
     )
     
-    input_ids = enc["input_ids"][0]
-    labels = input_ids.clone()
+    input_ids = full_inputs["input_ids"]
+    attn_mask = full_inputs["attention_mask"]
     
-    ...
+    labels = input_ids.clone()
+    prompt_lens = prompt_only["attention_mask"].sum(dim=1).tolist()
+    for i, prompt_len in enumerate(prompt_lens):
+        labels[i, :int(prompt_len)] = -100
+
+    labels[attn_mask == 0] = -100
+    
+    return {
+        **full_inputs,
+        "labels": labels,
+    }
 
 training_args = TrainingArguments(
     output_dir="outputs",
@@ -79,6 +111,8 @@ training_args = TrainingArguments(
     save_steps=1000,
     eval_steps=100,
     gradient_checkpointing=True,
+    bf16=True,
+    remove_unused_columns=False,
 )
 
 trainer = Trainer(
@@ -86,7 +120,7 @@ trainer = Trainer(
     args=training_args,
     train_dataset=train_dataset,
     eval_dataset=validation_dataset,
-    processor=processor,
+    data_collator=vlm_collator,
 )
 
 trainer.train()
