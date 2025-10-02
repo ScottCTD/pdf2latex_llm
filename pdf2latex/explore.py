@@ -1,7 +1,7 @@
 # Load model directly
 from transformers import AutoProcessor, AutoModelForImageTextToText
 
-processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-2B-Instruct", use_fast=False)
+processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-2B-Instruct", use_fast=True)
 model = AutoModelForImageTextToText.from_pretrained(
     "Qwen/Qwen2-VL-2B-Instruct",
     dtype="bfloat16",

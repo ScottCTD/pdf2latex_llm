@@ -8,9 +8,9 @@ conda activate pdf2latex
 
 Install necessary packages:
 ```sh
-pip install notebook tqdm
+pip install notebook tqdm wandb
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu129
-pip install transformers datasets
+pip install transformers datasets accelerate
 pip install peft
 pip install flash-attn --no-build-isolation
 ```
