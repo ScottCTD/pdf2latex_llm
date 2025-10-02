@@ -6,7 +6,10 @@ stream = load_dataset("OleehyO/latex-formulas-80M", "en",
                       split="train", streaming=True)
 
 def gen():
-    yield from islice(stream, 10)
+    for example in islice(stream, 100_000):
+        formula = example.get("latex_formula")
+        if formula is None or len(formula) <= 256:
+            yield example
 
 small = Dataset.from_generator(gen)   # now it's a regular (map-style) Dataset
-small.to_parquet("datasets/latex80m_en_10k.parquet")
+small.to_parquet("datasets/latex80m_en_100k.parquet")
