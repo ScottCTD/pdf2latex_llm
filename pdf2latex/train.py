@@ -1,3 +1,4 @@
+import torch
 from collections import defaultdict
 from typing import Dict
 import wandb
@@ -17,10 +18,16 @@ from peft import LoraConfig, get_peft_model, TaskType
 import metrics
 from pdf2latex_trainer import Pdf2LatexTrainer
 import utils
+from PIL import Image
+
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+# (Optional on PyTorch 2.x)
+torch.set_float32_matmul_precision("high")
 
 wandb.init(project="pdf2latex_llm")
 
-raw_dataset_file = "datasets/latex80m_en_100k.parquet"
+raw_dataset_file = "datasets/latex80m_en_1m.parquet"
 validation_size = 640
 train_dataset = load_dataset(
     "parquet", data_files=raw_dataset_file, split=f"train[:-{validation_size}]"
@@ -40,6 +47,51 @@ processor = AutoProcessor.from_pretrained(
 tokenizer = processor.tokenizer
 
 
+def _image_size(image):
+    """Return (width, height) for PIL, numpy, or torch image-like objects."""
+    if isinstance(image, Image.Image):
+        return image.size
+    try:
+        import numpy as _np
+        if isinstance(image, _np.ndarray):
+            if image.ndim == 3:
+                h, w = image.shape[:2]
+            elif image.ndim == 2:
+                h, w = image.shape
+            else:
+                return None
+            return (w, h)
+    except Exception:
+        pass
+    try:
+        import torch as _torch
+        if _torch.is_tensor(image):
+            if image.ndim == 3:
+                # channels-first or channels-last
+                if image.shape[0] in (1, 3):
+                    _, h, w = image.shape
+                else:
+                    h, w, _ = image.shape
+            elif image.ndim == 2:
+                h, w = image.shape
+            else:
+                return None
+            return (w, h)
+    except Exception:
+        pass
+    return None
+
+
+def _is_aspect_ok(image, max_abs_ratio: float = 200.0) -> bool:
+    size = _image_size(image)
+    if size is None:
+        return True
+    w, h = size
+    if w == 0 or h == 0:
+        return True
+    return max(w, h) / max(1, min(w, h)) <= max_abs_ratio
+
+
 def build_messages(image, latex_formula):
     user = {
         "role": "user",
@@ -56,8 +108,12 @@ def build_messages(image, latex_formula):
 
 
 def vlm_collator(examples):
+    # Skip items with extreme aspect ratio; if all are skipped, fall back to original batch
+    filtered = [ex for ex in examples if _is_aspect_ok(ex["image"], 200.0)]
+    effective = filtered if len(filtered) > 0 else examples
+
     user_only_msgs, full_msgs = [], []
-    for ex in examples:
+    for ex in effective:
         u, f = build_messages(ex["image"], ex["latex_formula"])
         user_only_msgs.append(u)
         full_msgs.append(f)
@@ -181,20 +237,21 @@ eval_generation_config = GenerationConfig(
     do_sample=False,
 )
 
-run_name = "tmp"
+run_name = "1"
 training_args = Seq2SeqTrainingArguments(
     output_dir=f"outputs/{run_name}",
     eval_strategy="steps",
     per_device_train_batch_size=16,
     per_device_eval_batch_size=64,
-    gradient_accumulation_steps=1,
+    gradient_accumulation_steps=4,
     num_train_epochs=1,
     learning_rate=1e-4,
     weight_decay=0.01,
     max_grad_norm=1.0,
     logging_steps=10,
-    save_strategy="epoch",
-    # save_steps=0,
+    save_strategy="steps",
+    save_steps=1000,
+    save_total_limit=5,
     eval_steps=100,
     eval_on_start=True,
     gradient_checkpointing=True,
