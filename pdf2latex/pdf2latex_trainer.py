@@ -10,12 +10,12 @@ from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel
 from torch.utils.data import Dataset
 
-from .generation.configuration_utils import GenerationConfig
-from .integrations.deepspeed import is_deepspeed_zero3_enabled
-from .integrations.fsdp import is_fsdp_managed_module
-from .trainer import Trainer
-from .utils import is_datasets_available, logging
-from .utils.deprecation import deprecate_kwarg
+from transformers.generation.configuration_utils import GenerationConfig
+from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
+from transformers.integrations.fsdp import is_fsdp_managed_module
+from transformers.trainer import Trainer
+from transformers.utils import is_datasets_available, logging
+from transformers.utils.deprecation import deprecate_kwarg
 
 
 if is_datasets_available():
@@ -24,15 +24,15 @@ if is_datasets_available():
 if TYPE_CHECKING:
     from torch.utils.data import IterableDataset
 
-    from .data.data_collator import DataCollator
-    from .feature_extraction_utils import FeatureExtractionMixin
-    from .image_processing_utils import BaseImageProcessor
-    from .modeling_utils import PreTrainedModel
-    from .processing_utils import ProcessorMixin
-    from .tokenization_utils_base import PreTrainedTokenizerBase
-    from .trainer_callback import TrainerCallback
-    from .trainer_utils import EvalPrediction, PredictionOutput
-    from .training_args import TrainingArguments
+    from transformers.data.data_collator import DataCollator
+    from transformers.feature_extraction_utils import FeatureExtractionMixin
+    from transformers.image_processing_utils import BaseImageProcessor
+    from transformers.modeling_utils import PreTrainedModel
+    from transformers.processing_utils import ProcessorMixin
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+    from transformers.trainer_callback import TrainerCallback
+    from transformers.trainer_utils import EvalPrediction, PredictionOutput
+    from transformers.training_args import TrainingArguments
 
 class Pdf2LatexTrainer(Seq2SeqTrainer):
     
