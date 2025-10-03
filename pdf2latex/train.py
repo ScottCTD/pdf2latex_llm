@@ -1,12 +1,23 @@
-import torch
+from collections import defaultdict
+from typing import Dict
+import wandb
+
+import numpy as np
 from transformers import (
-    TrainingArguments,
-    Trainer,
+    Seq2SeqTrainingArguments,
+    Seq2SeqTrainer,
     AutoProcessor,
     AutoModelForImageTextToText,
+    EvalPrediction,
+    GenerationConfig,
 )
 from datasets import load_dataset
 from peft import LoraConfig, get_peft_model, TaskType
+
+import metrics
+from pdf2latex_trainer import Pdf2LatexTrainer
+
+wandb.init(project="pdf2latex_llm")
 
 raw_dataset_file = "datasets/latex80m_en_100k.parquet"
 train_dataset = load_dataset(
@@ -23,6 +34,8 @@ processor = AutoProcessor.from_pretrained(
     # min_pixels=64 * 28 * 28,  # about 64 visual tokens
     max_pixels=896 * 28 * 28,
 )
+
+tokenizer = processor.tokenizer
 
 
 def build_messages(image, latex_formula):
@@ -77,6 +90,8 @@ def vlm_collator(examples):
     return {
         **full_inputs,
         "labels": labels,
+        "prompt_input_ids": prompt_only["input_ids"],
+        "prompt_attention_mask": prompt_only["attention_mask"],
     }
 
 
@@ -112,8 +127,8 @@ target_modules = [
 peft_config = LoraConfig(
     target_modules=target_modules,
     task_type=TaskType.CAUSAL_LM,
-    r=8,
-    lora_alpha=16,
+    r=32,
+    lora_alpha=64,
     lora_dropout=0.1,
 )
 
@@ -121,8 +136,53 @@ model = get_peft_model(model, peft_config)
 
 model.print_trainable_parameters()
 
-training_args = TrainingArguments(
-    output_dir="outputs",
+
+def compute_metrics(eval_pred: EvalPrediction) -> Dict[str, float]:
+    pred_ids, label_ids = eval_pred.predictions, eval_pred.label_ids
+    label_ids = np.where(label_ids != -100, label_ids, tokenizer.pad_token_id)
+
+    preds = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
+    labels = tokenizer.batch_decode(label_ids, skip_special_tokens=True)
+
+    metrics_dict = defaultdict(list)
+    i = 0
+    for pred, label in zip(preds, labels):
+        metrics_dict["exact_match"].append(metrics.metric_exact_match(pred, label))
+        metrics_dict["normalized_exact_match"].append(
+            metrics.metric_normalized_exact_match(pred, label)
+        )
+        metrics_dict["normalized_edit_similarity"].append(
+            metrics.metric_normalized_edit_similarity(label, pred)
+        )
+
+        if i % 20 == 0:
+            print("=" * 100)
+            print(f"Pred:  {pred}")
+            print(f"Label: {label}")
+            print(
+                f"EM={metrics_dict['exact_match'][-1]}  "
+                f"NEM={metrics_dict['normalized_exact_match'][-1]}  "
+                f"NES={metrics_dict['normalized_edit_similarity'][-1]}"
+            )
+        i += 1
+    return {
+        "exact_match": float(np.mean(metrics_dict["exact_match"])),
+        "normalized_exact_match": float(np.mean(metrics_dict["normalized_exact_match"])),
+        "normalized_edit_similarity": float(np.mean(
+            metrics_dict["normalized_edit_similarity"]
+        )),
+    }
+
+
+eval_generation_config = GenerationConfig(
+    max_new_tokens=512,
+    do_sample=False,
+    temperature=0.0,
+)
+
+run_name = "tmp"
+training_args = Seq2SeqTrainingArguments(
+    output_dir=f"outputs/{run_name}",
     eval_strategy="steps",
     per_device_train_batch_size=16,
     per_device_eval_batch_size=16,
@@ -132,20 +192,23 @@ training_args = TrainingArguments(
     weight_decay=0.01,
     max_grad_norm=1.0,
     logging_steps=10,
-    save_strategy="steps",
-    save_steps=0.6,
+    save_strategy="epoch",
+    # save_steps=0,
     eval_steps=100,
     gradient_checkpointing=True,
     bf16=True,
     remove_unused_columns=False,
+    predict_with_generate=True,
+    generation_config=eval_generation_config,
 )
 
-trainer = Trainer(
+trainer = Pdf2LatexTrainer(
     model=model,
     args=training_args,
     train_dataset=train_dataset,
     eval_dataset=validation_dataset,
     data_collator=vlm_collator,
+    compute_metrics=compute_metrics,
 )
 
 trainer.train()

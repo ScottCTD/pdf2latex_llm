@@ -10,6 +10,7 @@ dependencies = [
     "ipywidgets>=8.1.7",
     "notebook>=7.4.7",
     "peft>=0.17.1",
+    "pytest>=8.4.2",
     "torch>=2.8.0",
     "torchvision>=0.23.0",
     "tqdm>=4.67.1",
