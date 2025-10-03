@@ -16,15 +16,17 @@ from peft import LoraConfig, get_peft_model, TaskType
 
 import metrics
 from pdf2latex_trainer import Pdf2LatexTrainer
+import utils
 
 wandb.init(project="pdf2latex_llm")
 
 raw_dataset_file = "datasets/latex80m_en_100k.parquet"
+validation_size = 640
 train_dataset = load_dataset(
-    "parquet", data_files=raw_dataset_file, split="train[:90%]"
+    "parquet", data_files=raw_dataset_file, split=f"train[:-{validation_size}]"
 )
 validation_dataset = load_dataset(
-    "parquet", data_files=raw_dataset_file, split="train[90%:]"
+    "parquet", data_files=raw_dataset_file, split=f"train[-{validation_size}:]"
 )
 
 # this processor is responsible for processing both images and texts for the model
@@ -60,6 +62,7 @@ def vlm_collator(examples):
         user_only_msgs.append(u)
         full_msgs.append(f)
 
+    # this will left-pad messages
     full_inputs = processor.apply_chat_template(
         full_msgs,
         tokenize=True,
@@ -82,10 +85,9 @@ def vlm_collator(examples):
 
     labels = input_ids.clone()
     prompt_lens = prompt_only["attention_mask"].sum(dim=1).tolist()
-    for i, prompt_len in enumerate(prompt_lens):
-        labels[i, : int(prompt_len)] = -100
-
-    labels[attn_mask == 0] = -100
+    padding_lens = utils.index(attn_mask, 1).tolist()
+    for i, (prompt_len, padding_len) in enumerate(zip(prompt_lens, padding_lens)):
+        labels[i, : int(prompt_len + padding_len)] = -100
 
     return {
         **full_inputs,
@@ -155,9 +157,9 @@ def compute_metrics(eval_pred: EvalPrediction) -> Dict[str, float]:
             metrics.metric_normalized_edit_similarity(label, pred)
         )
 
-        if i % 20 == 0:
+        if i % 64 == 0:
             print("=" * 100)
-            print(f"Pred:  {pred}")
+            print(f"Pred: {pred}")
             print(f"Label: {label}")
             print(
                 f"EM={metrics_dict['exact_match'][-1]}  "
@@ -177,7 +179,6 @@ def compute_metrics(eval_pred: EvalPrediction) -> Dict[str, float]:
 eval_generation_config = GenerationConfig(
     max_new_tokens=512,
     do_sample=False,
-    temperature=0.0,
 )
 
 run_name = "tmp"
@@ -185,7 +186,7 @@ training_args = Seq2SeqTrainingArguments(
     output_dir=f"outputs/{run_name}",
     eval_strategy="steps",
     per_device_train_batch_size=16,
-    per_device_eval_batch_size=16,
+    per_device_eval_batch_size=64,
     gradient_accumulation_steps=1,
     num_train_epochs=1,
     learning_rate=1e-4,
@@ -195,6 +196,7 @@ training_args = Seq2SeqTrainingArguments(
     save_strategy="epoch",
     # save_steps=0,
     eval_steps=100,
+    eval_on_start=True,
     gradient_checkpointing=True,
     bf16=True,
     remove_unused_columns=False,
@@ -205,6 +207,7 @@ training_args = Seq2SeqTrainingArguments(
 trainer = Pdf2LatexTrainer(
     model=model,
     args=training_args,
+    processing_class=processor,
     train_dataset=train_dataset,
     eval_dataset=validation_dataset,
     data_collator=vlm_collator,

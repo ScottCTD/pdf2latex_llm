@@ -113,6 +113,11 @@ class Pdf2LatexTrainer(Seq2SeqTrainer):
         with summon_full_params_context:
             generated_tokens = self.model.generate(**generation_inputs, **gen_kwargs)
 
+        # retain only new tokens from generated_tokens
+        # prompt_len is fixed because of left-padding
+        prompt_len = generation_inputs["attention_mask"].size(1)
+        generated_tokens = generated_tokens[:, prompt_len:]
+
         # Temporary hack to ensure the generation config is not initialized for each iteration of the evaluation loop
         # TODO: remove this hack when the legacy code that initializes generation_config from a model config is
         # removed in https://github.com/huggingface/transformers/blob/98d88b23f54e5a23e741833f1e973fdf600cc2c5/src/transformers/generation/utils.py#L1183
