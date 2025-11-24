@@ -218,3 +218,5 @@ __marimo__/
 datasets/*
 wandb/*
 outputs/*
+.terraform/
+.terraform.lock.hcl

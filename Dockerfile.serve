@@ -1,0 +1,8 @@
+FROM vllm/vllm-openai:latest
+
+# We can use the base image directly if we just need to run vllm serve.
+# But if we need custom weights baked in, we'd copy them here.
+# For this setup, we assume weights are mounted or downloaded at runtime.
+# So this Dockerfile is minimal, just to have a defined serving environment.
+
+ENTRYPOINT ["vllm", "serve"]
