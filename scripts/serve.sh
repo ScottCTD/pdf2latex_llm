@@ -7,5 +7,5 @@ conda activate vllm
 
 vllm serve ./outputs/1/checkpoint-6000/merged/ \
     --served-model-name Qwen2-VL-2B-Instruct-pdf2latex \
-    --port 8001 \
+    --port 8000 \
     --gpu-memory-utilization 0.9
