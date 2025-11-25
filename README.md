@@ -114,7 +114,55 @@ Verify the deployed endpoint by sending a sample image.
 
 ```sh
 uv run python scripts/test_endpoint.py \
-    --project_id YOUR_PROJECT_ID \
     --endpoint_id YOUR_ENDPOINT_ID \
     --image_path test_image.png
+```
+
+## 🔌 Integration Guide
+
+To call the deployed model from another service (e.g., a backend API or microservice), use the Google Cloud Vertex AI SDK or standard REST API.
+
+### Authentication
+Ensure your service has a Service Account with the `Vertex AI User` role.
+- **Local Dev:** `gcloud auth application-default login`
+- **Production:** Attach the Service Account to your VM/Pod.
+
+### Python Example
+```python
+import base64
+import json
+from google.cloud import aiplatform
+
+def predict_latex(project_id, location, endpoint_id, image_path):
+    # Initialize Vertex AI SDK
+    aiplatform.init(project=project_id, location=location)
+    endpoint = aiplatform.Endpoint(endpoint_id)
+
+    # Encode Image
+    with open(image_path, "rb") as f:
+        encoded_image = base64.b64encode(f.read()).decode("utf-8")
+
+    # Construct Payload (OpenAI Chat Format)
+    payload = {
+        "model": "/model-artifacts",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Convert this to LaTeX."},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded_image}"}}
+                ]
+            }
+        ],
+        "max_tokens": 512,
+        "temperature": 0.2
+    }
+
+    # Send Request
+    response = endpoint.raw_predict(
+        body=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}
+    )
+    
+    return response.content.decode("utf-8")
 ```
