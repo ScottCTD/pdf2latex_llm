@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y python3 python3-pip git && \
 
 # Install vLLM and dependencies
 # We install a specific version known to be stable or just latest
-RUN pip3 install --no-cache-dir vllm google-cloud-storage
+RUN pip3 install --no-cache-dir "vllm>=0.6.3" "transformers>=4.46.0" google-cloud-storage
 
 # Copy entrypoint script
 COPY pdf2latex/serve_entrypoint.py /app/serve_entrypoint.py

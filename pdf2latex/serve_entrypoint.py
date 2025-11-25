@@ -41,8 +41,8 @@ def download_gcs_folder(gcs_uri, local_dir):
         blob.download_to_filename(local_path)
 
 def main():
-    # AIP_STORAGE_URI is set by Vertex AI when artifact_uri is provided
-    gcs_uri = os.environ.get("AIP_STORAGE_URI")
+    # Check for manual GCS URI first, then Vertex AI managed URI
+    gcs_uri = os.environ.get("MODEL_GCS_URI") or os.environ.get("AIP_STORAGE_URI")
     model_dir = "/model-artifacts"
 
     if gcs_uri:

@@ -28,44 +28,44 @@ def predict_image(project_id, location, endpoint_id, image_path):
     # If vLLM is running as an OpenAI server, we might need a proxy or specific payload.
     # But usually, for custom containers, we just send what the container expects.
     
-    # Qwen2-VL expects:
-    # <|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>Convert this to LaTeX.<|im_end|>\n<|im_start|>assistant\n
-    
+    # Qwen2-VL via vLLM OpenAI API expects Chat Completions format
     encoded_image = base64.b64encode(file_content).decode("utf-8")
     
-    # We will construct a prompt that vLLM can process.
-    # Since we are using the raw vLLM serve, it exposes an OpenAI-compatible API.
-    # Vertex AI's predict() method sends a POST request to the container's predict route.
-    # In our deploy script, we set `serving_container_predict_route="/v1/completions"`.
-    # So we need to send a payload that matches the OpenAI Completions API.
-    
-    prompt = f"<|im_start|>user\n<|vision_start|><|image_pad|><|vision_end|>Convert this to LaTeX.<|im_end|>\n<|im_start|>assistant\n"
-    
-    # vLLM with Qwen2-VL supports passing image data in the prompt or as separate arguments depending on the version.
-    # A common way for vLLM serving multimodal models via API is somewhat complex.
-    # Ideally, we should use the /v1/chat/completions endpoint if possible, but we set /v1/completions.
-    
-    # Let's try a simple completion payload.
-    # Note: Passing images to vLLM via the standard HTTP API can be tricky if it doesn't support base64 directly in the prompt.
-    # But let's assume standard OpenAI format for now.
-    
-    instance = {
-        "prompt": prompt,
+    # Construct OpenAI-compatible payload
+    # Model name is '/model-artifacts' because that's what we passed to vLLM
+    payload = {
+        "model": "/model-artifacts",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Convert this to LaTeX."},
+                    {
+                        "type": "image_url", 
+                        "image_url": {
+                            "url": f"data:image/png;base64,{encoded_image}"
+                        }
+                    }
+                ]
+            }
+        ],
         "max_tokens": 512,
-        "temperature": 0.2,
-        "image_data": [{"data": encoded_image, "media_type": "image/png"}] # This is a guess on vLLM's custom input extension
+        "temperature": 0.2
     }
     
-    # Actually, vLLM's OpenAI server might not support "image_data" in /v1/completions directly in this way.
-    # It's safer to use the Chat Completions API if we can, but we bound to /v1/completions.
+    print("Sending request to /v1/chat/completions...")
     
-    # Alternative: We can try to use the raw predict request if we knew the signature.
-    # Given the uncertainty, let's try the most standard "prompt" approach.
-    
-    response = endpoint.predict(instances=[instance])
+    # Use raw_predict to bypass Vertex AI's "instances" wrapper
+    # This sends the JSON body directly to the container
+    import json
+    response = endpoint.raw_predict(
+        body=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"}
+    )
     
     print("Prediction Response:")
-    print(response)
+    # Response is bytes, decode it
+    print(response.content.decode("utf-8"))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

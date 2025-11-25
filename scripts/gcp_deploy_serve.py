@@ -11,6 +11,7 @@ def deploy_model(
     accelerator_count: int,
     model_artifact_uri: str = None,
     hf_model_id: str = None,
+    service_account: str = None,
 ):
     aiplatform.init(project=project_id, location=location)
 
@@ -29,18 +30,19 @@ def deploy_model(
     # The `serving_args` variable is no longer needed for Model.upload.
 
     # 1. Upload Model to Registry
+    # We pass the GCS URI as an env var to avoid Vertex AI copying artifacts to a managed bucket,
+    # which seems to be causing missing file issues.
+    env_vars = {"MODEL_GCS_URI": model_artifact_uri} if model_artifact_uri else {}
+    
     model = aiplatform.Model.upload(
         display_name=display_name,
-        # artifact_uri can be None if just using container with HF model
-        # The instruction's snippet removes artifact_uri, ports, and routes.
-        # Following the snippet to remove them.
-        # If artifact_uri is truly needed, it should be re-added.
-        # For this change, I'm following the provided snippet's structure.
         serving_container_image_uri=serving_container_uri,
-        # The snippet introduces serving_container_environment_variables,
-        # but `env_vars` is not defined. I will omit it as it's not part of the explicit instruction.
-        # Pass V100-compatible args here
-        serving_container_args=["--dtype", "float16", "--max-model-len", "8192", "--enforce-eager"],
+        serving_container_environment_variables=env_vars,
+        # Pass V100-compatible args here, PLUS the model path
+        serving_container_args=serving_args + ["--dtype", "float16", "--max-model-len", "8192", "--enforce-eager"],
+        serving_container_ports=[8000],
+        serving_container_predict_route="/v1/chat/completions",
+        serving_container_health_route="/health",
     )
     
     print(f"Model uploaded: {model.resource_name}")
@@ -77,7 +79,7 @@ def deploy_model(
         max_replica_count=1,
         sync=True,
         # V100 requires float16 (no bfloat16 support) and we need to be careful with attention
-        service_account=None, # Use default compute service account
+        service_account=service_account, 
         # The 'args' parameter is removed as per instruction.
     )
     
@@ -94,6 +96,7 @@ if __name__ == "__main__":
     parser.add_argument("--machine_type", default="n1-standard-4", type=str)
     parser.add_argument("--accelerator_type", default="NVIDIA_TESLA_V100", type=str)
     parser.add_argument("--accelerator_count", default=1, type=int)
+    parser.add_argument("--service_account", type=str, help="Service account for the container")
     
     args = parser.parse_args()
     
@@ -110,4 +113,5 @@ if __name__ == "__main__":
         machine_type=args.machine_type,
         accelerator_type=args.accelerator_type,
         accelerator_count=args.accelerator_count,
+        service_account=args.service_account,
     )
