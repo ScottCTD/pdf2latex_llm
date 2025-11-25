@@ -19,7 +19,11 @@ uv sync
 ```
 *Note: `flash-attn` is not available for MPS.*
 
----
+### Serving
+
+```
+ssh -L 8001:gpunode24:8000 cs.edu
+```
 
 ## ☁️ GCP MLOps Pipeline
 
