@@ -220,3 +220,6 @@ wandb/*
 outputs/*
 .terraform/
 .terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+*.png
