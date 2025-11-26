@@ -27,7 +27,44 @@ torch.set_float32_matmul_precision("high")
 
 wandb.init(project="pdf2latex_llm")
 
-raw_dataset_file = "datasets/latex80m_en_1m.parquet"
+# this processor is responsible for processing both images and texts for the model
+processor = AutoProcessor.from_pretrained(
+    "Qwen/Qwen2-VL-2B-Instruct",
+    use_fast=True,
+    # min_pixels=64 * 28 * 28,  # about 64 visual tokens
+    max_pixels=896 * 28 * 28,
+)
+
+tokenizer = processor.tokenizer
+
+import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train PDF to LaTeX model")
+    parser.add_argument(
+        "--dataset_path", 
+        type=str, 
+        default="datasets/latex80m_en_1m.parquet",
+        help="Path to the dataset parquet file (local or GCS)"
+    )
+    parser.add_argument(
+        "--output_dir", 
+        type=str, 
+        default="outputs/1",
+        help="Directory to save checkpoints and logs"
+    )
+    parser.add_argument(
+        "--model_id", 
+        type=str, 
+        default="Qwen/Qwen2-VL-2B-Instruct",
+        help="Model ID to use for training"
+    )
+    # Add other arguments as needed for hyperparameters if we want to expose them
+    return parser.parse_args()
+
+args = parse_args()
+
+raw_dataset_file = args.dataset_path
 validation_size = 640
 train_dataset = load_dataset(
     "parquet", data_files=raw_dataset_file, split=f"train[:-{validation_size}]"
@@ -36,13 +73,6 @@ validation_dataset = load_dataset(
     "parquet", data_files=raw_dataset_file, split=f"train[-{validation_size}:]"
 )
 
-# this processor is responsible for processing both images and texts for the model
-processor = AutoProcessor.from_pretrained(
-    "Qwen/Qwen2-VL-2B-Instruct",
-    use_fast=True,
-    # min_pixels=64 * 28 * 28,  # about 64 visual tokens
-    max_pixels=896 * 28 * 28,
-)
 
 tokenizer = processor.tokenizer
 
@@ -239,7 +269,7 @@ eval_generation_config = GenerationConfig(
 
 run_name = "1"
 training_args = Seq2SeqTrainingArguments(
-    output_dir=f"outputs/{run_name}",
+    output_dir=args.output_dir,
     eval_strategy="steps",
     per_device_train_batch_size=16,
     per_device_eval_batch_size=64,
