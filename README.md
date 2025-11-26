@@ -32,5 +32,11 @@ Note that `flash-attn` is not available for MPS.
 ## Serving
 
 ```
-ssh -L 8001:gpunode24:8000 cs.edu
+ssh -L 8001:gpunode3:8000 cs.edu
+```
+
+```
+vllm serve Qwen/Qwen2-VL-2B-Instruct \
+    --port 8000 \
+    --gpu-memory-utilization 0.9
 ```
