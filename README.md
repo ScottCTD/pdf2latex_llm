@@ -165,4 +165,11 @@ def predict_latex(project_id, location, endpoint_id, image_path):
     )
     
     return response.content.decode("utf-8")
+ssh -L 8001:gpunode3:8000 cs.edu
+```
+
+```
+vllm serve Qwen/Qwen2-VL-2B-Instruct \
+    --port 8000 \
+    --gpu-memory-utilization 0.9
 ```

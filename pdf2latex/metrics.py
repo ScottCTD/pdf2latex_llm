@@ -3,6 +3,7 @@ import re
 from typing import List
 
 def metric_exact_match(pred: str, target: str) -> float:
+    """Returns 1.0 if prediction exactly matches target, 0.0 otherwise."""
     return float(pred == target)
 
 MATH_DELIMS = [
@@ -29,6 +30,7 @@ def normalize_latex(s: str) -> str:
     return s
 
 def metric_normalized_exact_match(pred: str, target: str) -> float:
+    """Returns 1.0 if prediction matches target after normalizing whitespace and removing math delimiters, 0.0 otherwise."""
     return float(normalize_latex(pred) == normalize_latex(target))
 
 # simple LaTeX-aware tokenizer
@@ -44,6 +46,7 @@ def latex_tokens(s: str) -> List[str]:
     return [m.group(0) for m in _TOK_RE.finditer(s)]
 
 def metric_normalized_edit_similarity(gold: str, pred: str) -> float:
+    """Returns similarity score (0.0 to 1.0) based on token-level edit distance between normalized predictions."""
     a = latex_tokens(normalize_latex(gold))
     b = latex_tokens(normalize_latex(pred))
     # Levenshtein distance
